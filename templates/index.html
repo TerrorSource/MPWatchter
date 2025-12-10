@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block title %}Overzicht · Marktplaats Watcher{% endblock %}
+
+{% block topbar_stats %}
+  <div class="pill-stat">
+    Zoeken actief
+    <span>{{ keywords|length }} trefwoord{% if keywords|length != 1 %}en{% endif %}</span>
+  </div>
+  <div class="pill-stat">
+    Standaard interval
+    <span>{{ default_interval }} min</span>
+  </div>
+  <div class="pill-stat">
+    Limiet per zoekopdracht
+    <span>{{ default_limit_per_run }}</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="page-grid">
+    <!-- Linker kaart: nieuwe zoekopdracht -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-kicker">Nieuwe zoekopdracht</div>
+          <div class="card-title">
+            Voeg een Marktplaats zoekwoord toe
+          </div>
+          <p class="card-description">
+            Nieuwe zoekwoorden gebruiken automatisch je ingestelde
+            standaardinterval, limiet en locatie. Min/max prijs kun je
+            optioneel per trefwoord instellen.
+          </p>
+        </div>
+        <span class="badge-pill">Realtime meldingen</span>
+      </div>
+
+      <form method="post" action="{{ url_for('add_keyword') }}" class="form-grid-1">
+        <div class="form-field">
+          <label class="form-label">Zoekwoord</label>
+          <input
+            class="input"
+            type="text"
+            name="term"
+            placeholder="Bijvoorbeeld: Lego Technic, Nintendo Switch…"
+            required
+          >
+        </div>
+
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="form-label">
+              Min. prijs (€)
+              <span>optioneel</span>
+            </label>
+            <input
+              class="input"
+              type="number"
+              name="min_price"
+              min="0"
+              step="1"
+              placeholder="bijv. 50"
+            >
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">
+              Max. prijs (€)
+              <span>optioneel</span>
+            </label>
+            <input
+              class="input"
+              type="number"
+              name="max_price"
+              min="0"
+              step="1"
+              placeholder="bijv. 200"
+            >
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;gap:10px;">
+          <span class="chip-muted">
+            Interval en limiet worden overgenomen uit je configuratie.
+          </span>
+          <button type="submit" class="btn btn-primary">
+            + Zoekwoord toevoegen
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Rechter kaart: tips / status -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-kicker">Status</div>
+          <div class="card-title">
+            Achtergrond worker & Telegram
+          </div>
+        </div>
+        <span class="badge-soft">Live</span>
+      </div>
+
+      <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text-muted);">
+        <li>• Iedere zoekterm wordt automatisch gezocht op basis van het ingestelde interval.</li>
+        <li>• Tijdens de slaapstand wordt maximaal <strong>1x per uur</strong> gezocht.</li>
+        <li>• Alleen <strong>nieuwe</strong> advertenties worden via Telegram gemeld.</li>
+        <li>• Handmatige zoekopdrachten kunnen, indien geactiveerd, ook direct naar Telegram sturen.</li>
+      </ul>
+
+      <div class="divider"></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;">
+        <span class="chip-muted">
+          Tip: stel per zoekwoord min/max prijs en limiet per run in voor fijnmazige controle.
+        </span>
+        <a href="{{ url_for('config_view') }}" class="btn btn-soft">
+          Configuratie openen
+        </a>
+      </div>
+    </section>
+  </div>
+
+  <!-- Zoekwoorden tabel -->
+  <section class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-kicker">Actieve zoekwoorden</div>
+        <div class="card-title">
+          Trefwoorden & intervallen
+        </div>
+        <p class="card-description">
+          Pas per zoekwoord het interval, min/max prijs en limiet per zoekopdracht aan.
+          Gebruik de acties rechts om direct te zoeken, resultaten te resetten of te verwijderen.
+        </p>
+      </div>
+    </div>
+
+    {% if keywords %}
+      <div class="table-wrapper">
+        <div class="table-header">
+          <div>Zoekwoord</div>
+          <div>Interval (min)</div>
+          <div>Min. prijs</div>
+          <div>Max. prijs</div>
+          <div>Limiet</div>
+          <div style="text-align:right;">Acties</div>
+        </div>
+
+        {% for kw in keywords %}
+          <div class="table-row">
+            <!-- Zoekwoord + laatst gezocht -->
+            <div class="table-cell-title">
+              <span>{{ kw.term }}</span>
+              <span class="table-chip">
+                Laatst gezocht:
+                {% if kw.last_run_at == "Nooit" %}
+                  <span style="color:#fecaca;">Nooit</span>
+                {% else %}
+                  {{ kw.last_run_at }}
+                {% endif %}
+              </span>
+            </div>
+
+            <!-- Interval -->
+            <div>
+              <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
+                <div class="inline-input-group">
+                  <input
+                    class="input input--short"
+                    type="number"
+                    name="interval"
+                    min="1"
+                    step="1"
+                    value="{{ kw.interval_minutes }}"
+                  >
+                  <span>min</span>
+
+                  <!-- Hidden fields zodat rest van de waarden behouden blijven -->
+                  <input type="hidden" name="term" value="{{ kw.term }}">
+                  <input type="hidden" name="min_price" value="{{ kw.min_price if kw.min_price is not none }}">
+                  <input type="hidden" name="max_price" value="{{ kw.max_price if kw.max_price is not none }}">
+                  <input type="hidden" name="limit_per_run" value="{{ kw.limit_per_run if kw.limit_per_run is not none }}">
+                </div>
+              </form>
+            </div>
+
+            <!-- Min prijs -->
+            <div>
+              <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
+                <div class="inline-input-group">
+                  <span>€</span>
+                  <input
+                    class="input input--short"
+                    type="number"
+                    name="min_price"
+                    min="0"
+                    step="1"
+                    value="{{ kw.min_price if kw.min_price is not none }}"
+                  >
+                  <!-- Hidden rest -->
+                  <input type="hidden" name="term" value="{{ kw.term }}">
+                  <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">
+                  <input type="hidden" name="max_price" value="{{ kw.max_price if kw.max_price is not none }}">
+                  <input type="hidden" name="limit_per_run" value="{{ kw.limit_per_run if kw.limit_per_run is not none }}">
+                </div>
+              </form>
+            </div>
+
+            <!-- Max prijs -->
+            <div>
+              <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
+                <div class="inline-input-group">
+                  <span>€</span>
+                  <input
+                    class="input input--short"
+                    type="number"
+                    name="max_price"
+                    min="0"
+                    step="1"
+                    value="{{ kw.max_price if kw.max_price is not none }}"
+                  >
+                  <!-- Hidden rest -->
+                  <input type="hidden" name="term" value="{{ kw.term }}">
+                  <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">
+                  <input type="hidden" name="min_price" value="{{ kw.min_price if kw.min_price is not none }}">
+                  <input type="hidden" name="limit_per_run" value="{{ kw.limit_per_run if kw.limit_per_run is not none }}">
+                </div>
+              </form>
+            </div>
+
+            <!-- Limiet -->
+            <div>
+              <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
+                <div class="inline-input-group">
+                  <input
+                    class="input input--short"
+                    type="number"
+                    name="limit_per_run"
+                    min="1"
+                    max="20"
+                    step="1"
+                    value="{{ kw.limit_per_run if kw.limit_per_run is not none }}"
+                  >
+                  <span>ads</span>
+                  <!-- Hidden rest -->
+                  <input type="hidden" name="term" value="{{ kw.term }}">
+                  <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">
+                  <input type="hidden" name="min_price" value="{{ kw.min_price if kw.min_price is not none }}">
+                  <input type="hidden" name="max_price" value="{{ kw.max_price if kw.max_price is not none }}">
+                </div>
+              </form>
+            </div>
+
+            <!-- Acties -->
+            <div class="actions-col">
+              <form method="post" action="{{ url_for('manual_search', keyword_id=kw.id) }}">
+                <button type="submit" class="btn btn-primary">Handmatig zoeken</button>
+              </form>
+
+              <a href="{{ url_for('results', keyword_id=kw.id) }}" class="btn btn-soft">
+                Laatste resultaten
+              </a>
+
+              <form method="post" action="{{ url_for('reset_keyword', keyword_id=kw.id) }}">
+                <button type="submit" class="btn btn-ghost">Reset resultaten</button>
+              </form>
+
+              <form method="post" action="{{ url_for('delete_keyword', keyword_id=kw.id) }}">
+                <button type="submit" class="btn btn-danger">Verwijderen</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>Geen zoekwoorden ingesteld.</strong>
+        Voeg hierboven een trefwoord toe om te starten met monitoren.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

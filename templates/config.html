@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Configuratie · Marktplaats Watcher{% endblock %}
+
+{% block topbar_stats %}
+  <div class="pill-stat">
+    Interval standaard
+    <span>{{ default_interval }} min</span>
+  </div>
+  <div class="pill-stat">
+    Limiet standaard
+    <span>{{ default_limit_per_run }}</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-kicker">Configuratie</div>
+        <div class="card-title">
+          Basisinstellingen & Telegram
+        </div>
+        <p class="card-description">
+          Stel het globale zoekgedrag, de slaapstand, locatie en Telegram-meldingen in.
+          Deze waarden worden gebruikt als defaults voor nieuwe zoekwoorden.
+        </p>
+      </div>
+      <span class="badge-pill">Global settings</span>
+    </div>
+
+    <div class="page-grid">
+      <!-- Linkerzijde: timer, slaapstand, locatie -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-kicker">Zoekinterval & slaapstand</span>
+        </div>
+
+        <form method="post" action="{{ url_for('config_view') }}" class="form-grid-1">
+          <div class="form-grid">
+            <div class="form-field">
+              <label class="form-label">
+                Standaard interval (min)
+                <span>voor nieuwe zoekwoorden</span>
+              </label>
+              <input
+                class="input"
+                type="number"
+                name="default_interval"
+                min="1"
+                step="1"
+                value="{{ default_interval }}"
+              >
+            </div>
+
+            <div class="form-field">
+              <label class="form-label">
+                Limiet per zoekopdracht
+                <span>1–20 resultaten</span>
+              </label>
+              <input
+                class="input"
+                type="number"
+                name="default_limit_per_run"
+                min="1"
+                max="20"
+                step="1"
+                value="{{ default_limit_per_run }}"
+              >
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="form-grid">
+            <div class="form-field">
+              <label class="form-label">
+                Slaapstand
+                <span>minder vaak zoeken 's nachts</span>
+              </label>
+              <select name="sleep_mode" class="select">
+                <option value="nee" {% if sleep_mode == 'nee' %}selected{% endif %}>Nee</option>
+                <option value="ja" {% if sleep_mode == 'ja' %}selected{% endif %}>Ja</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label class="form-label">
+                Tijden (start–einde)
+                <span>standaard 23:00–07:00</span>
+              </label>
+              <div class="inline-input-group">
+                <input
+                  class="input input--short"
+                  type="time"
+                  name="sleep_start"
+                  value="{{ sleep_start }}"
+                >
+                <span>tot</span>
+                <input
+                  class="input input--short"
+                  type="time"
+                  name="sleep_end"
+                  value="{{ sleep_end }}"
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="form-grid">
+            <div class="form-field">
+              <label class="form-label">
+                Postcode
+                <span>optioneel, bv. 3208BJ</span>
+              </label>
+              <input
+                class="input"
+                type="text"
+                name="postcode"
+                value="{{ postcode }}"
+                placeholder="bv. 3208BJ"
+              >
+            </div>
+
+            <div class="form-field">
+              <label class="form-label">
+                Straal
+                <span>afstand rond postcode</span>
+              </label>
+              <select name="radius" class="select">
+                {% for value, label in radius_options %}
+                  <option value="{{ value }}" {% if radius == value %}selected{% endif %}>
+                    {{ label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+            <button type="submit" class="btn btn-primary">
+              Instellingen links opslaan
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Rechterzijde: Telegram -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-kicker">Telegram meldingen</span>
+        </div>
+
+        <form method="post" action="{{ url_for('config_view') }}" class="form-grid-1">
+          <div class="form-grid">
+            <div class="form-field">
+              <label class="form-label">Telegram Bot token</label>
+              <input
+                class="input"
+                type="text"
+                name="telegram_bot_id"
+                value="{{ telegram_bot_id }}"
+                placeholder="123456789:AA..."
+              >
+            </div>
+
+            <div class="form-field">
+              <label class="form-label">Telegram Chat ID</label>
+              <input
+                class="input"
+                type="text"
+                name="telegram_chat_id"
+                value="{{ telegram_chat_id }}"
+                placeholder="bijv. 123456789"
+              >
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="form-field">
+            <label class="form-label">
+              Handmatig zoeken naar Telegram
+              <span>ook handmatige zoekacties pushen</span>
+            </label>
+            <select name="manual_telegram" class="select">
+              <option value="nee" {% if manual_telegram == 'nee' %}selected{% endif %}>Nee</option>
+              <option value="ja" {% if manual_telegram == 'ja' %}selected{% endif %}>Ja</option>
+            </select>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;">
+            <span class="chip-muted">
+              Bij automatische runs worden alleen nieuwe advertenties gepusht.
+            </span>
+            <div class="btn-group">
+              <button type="submit" class="btn btn-primary">
+                Telegram-instellingen opslaan
+              </button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Los formulier voor test-telegram zodat de route /config/test-telegram wordt gebruikt -->
+        <form method="post" action="{{ url_for('config_test_telegram') }}" style="margin-top:10px;">
+          <!-- we sturen huidige waarden mee zodat ze niet verloren gaan -->
+          <input type="hidden" name="telegram_bot_id" value="{{ telegram_bot_id }}">
+          <input type="hidden" name="telegram_chat_id" value="{{ telegram_chat_id }}">
+          <input type="hidden" name="manual_telegram" value="{{ manual_telegram }}">
+          <button type="submit" class="btn btn-soft">
+            Test Telegram bericht
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+{% endblock %}

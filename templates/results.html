@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Resultaten · {{ term }} · Marktplaats Watcher{% endblock %}
+
+{% block topbar_stats %}
+  <div class="pill-stat">
+    Zoekwoord
+    <span>{{ term }}</span>
+  </div>
+  <div class="pill-stat">
+    Laatst gezocht
+    <span>{{ last_run }}</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-kicker">Laatste resultaten</div>
+        <div class="card-title">
+          {{ term }}
+        </div>
+        <p class="card-description">
+          Dit zijn de advertenties die bij de laatste zoekopdracht zijn gevonden.
+          Nieuwe resultaten worden bij volgende runs vergeleken en alleen nieuwe items
+          worden naar Telegram verstuurd.
+        </p>
+      </div>
+      <div class="btn-group">
+        <a href="{{ url_for('index') }}" class="btn btn-soft">
+          ← Terug naar overzicht
+        </a>
+        <form method="post" action="{{ url_for('manual_search', keyword_id=keyword_id) }}">
+          <button type="submit" class="btn btn-primary">
+            Handmatig opnieuw zoeken
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">
+      Laatst gezocht: <strong>{{ last_run }}</strong>
+    </div>
+
+    {% if results %}
+      <div class="results-list">
+        {% for r in results %}
+          <article class="result-item">
+            <h3 class="result-title">
+              <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">
+                {{ r.title }}
+              </a>
+            </h3>
+            <div class="result-meta">
+              <span class="badge-price">{{ r.price }}</span>
+              <span class="badge-time">Gevonden: {{ r.found_at }}</span>
+              <span class="chip-muted">
+                URL:
+                <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer" style="color:var(--mp-orange-soft);text-decoration:none;">
+                  {{ r.url }}
+                </a>
+              </span>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>Geen resultaten opgeslagen.</strong>
+        Dit kan betekenen dat er nog niet gezocht is, of dat de laatste zoekactie niets opleverde.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
