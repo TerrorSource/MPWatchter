@@ -140,14 +140,14 @@
 
     {% if keywords %}
       <div class="table-wrapper">
-        <div class="table-header">
-          <div>Zoekwoord</div>
-          <div>Interval (min)</div>
-          <div>Min. prijs</div>
-          <div>Max. prijs</div>
-          <div>Limiet</div>
-          <div style="text-align:right;">Acties</div>
-        </div>
+<div class="table-header">
+  <div>Zoekwoord</div>
+  <div>Interval(min)</div>
+  <div>Min. prijs</div>
+  <div>Max. prijs</div>
+  <div>Limiet</div>
+  <div style="text-align:right;">Acties</div>
+</div>
 
         {% for kw in keywords %}
           <div class="table-row">
@@ -176,8 +176,7 @@
                     step="1"
                     value="{{ kw.interval_minutes }}"
                   >
-                  <span>min</span>
-
+                  
                   <!-- Hidden fields zodat rest van de waarden behouden blijven -->
                   <input type="hidden" name="term" value="{{ kw.term }}">
                   <input type="hidden" name="min_price" value="{{ kw.min_price if kw.min_price is not none }}">
@@ -244,7 +243,6 @@
                     step="1"
                     value="{{ kw.limit_per_run if kw.limit_per_run is not none }}"
                   >
-                  <span>ads</span>
                   <!-- Hidden rest -->
                   <input type="hidden" name="term" value="{{ kw.term }}">
                   <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">
@@ -257,15 +255,15 @@
             <!-- Acties -->
             <div class="actions-col">
               <form method="post" action="{{ url_for('manual_search', keyword_id=kw.id) }}">
-                <button type="submit" class="btn btn-primary">Handmatig zoeken</button>
+                <button type="submit" class="btn btn-primary">Handmatig</button>
               </form>
 
               <a href="{{ url_for('results', keyword_id=kw.id) }}" class="btn btn-soft">
-                Laatste resultaten
+                Resultaten
               </a>
 
               <form method="post" action="{{ url_for('reset_keyword', keyword_id=kw.id) }}">
-                <button type="submit" class="btn btn-ghost">Reset resultaten</button>
+                <button type="submit" class="btn btn-ghost">Reset</button>
               </form>
 
               <form method="post" action="{{ url_for('delete_keyword', keyword_id=kw.id) }}">

@@ -446,13 +446,22 @@
       background: radial-gradient(circle at top left, #020617 0, #020617 100%);
     }
 
-    .table-header, .table-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 0.8fr)) minmax(0, 1.2fr);
-      gap: 10px;
-      align-items: center;
-      padding: 8px 14px;
-    }
+.table-header,
+.table-row {
+  display: grid;
+  /* Zoekwoord | Interval | Min | Max | Limiet | Acties */
+  grid-template-columns:
+    minmax(0, 2.2fr)   /* zoekwoord – iets smaller */
+    100px              /* interval */
+    85px               /* min prijs */
+    85px               /* max prijs */
+    80px               /* limiet */
+    minmax(260px, 2.6fr); /* acties – wat breder */
+  gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+}
+
 
     .table-header {
       font-size: 11px;
@@ -505,7 +514,7 @@
     }
 
     .inline-input-group .input--short {
-      max-width: 72px;
+      max-width: 55px;
     }
 
     .inline-input-group span {
