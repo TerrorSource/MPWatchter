@@ -29,6 +29,12 @@ MPWatcher is een Docker-based webapplicatie waarmee je automatisch Marktplaats-a
 
 ---
 
+## 📸 Screenshot
+
+![MPWatcher Dashboard](screenshots/mpwatcher-dashboard.png)
+
+---
+
 ## 🐳 Installatie (Docker)
 
 MPWatcher is bedoeld om te draaien als Docker container en werkt uitstekend met Portainer en andere Docker-omgevingen.
