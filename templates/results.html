@@ -1,77 +1,66 @@
 {% extends "base.html" %}
 
-{% block title %}Resultaten · {{ term }} · Marktplaats Watcher{% endblock %}
-
-{% block topbar_stats %}
-  <div class="pill-stat">
-    Zoekwoord
-    <span>{{ term }}</span>
-  </div>
-  <div class="pill-stat">
-    Laatst gezocht
-    <span>{{ last_run }}</span>
-  </div>
-{% endblock %}
+{% block title %}Resultaten · {{ keyword.term }}{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="card-header">
-      <div>
-        <div class="card-kicker">Laatste resultaten</div>
-        <div class="card-title">
-          {{ term }}
-        </div>
-        <p class="card-description">
-          Dit zijn de advertenties die bij de laatste zoekopdracht zijn gevonden.
-          Nieuwe resultaten worden bij volgende runs vergeleken en alleen nieuwe items
-          worden naar Telegram verstuurd.
-        </p>
-      </div>
-      <div class="btn-group">
-        <a href="{{ url_for('index') }}" class="btn btn-soft">
-          ← Terug naar overzicht
-        </a>
-        <form method="post" action="{{ url_for('manual_search', keyword_id=keyword_id) }}">
-          <button type="submit" class="btn btn-primary">
-            Handmatig opnieuw zoeken
-          </button>
-        </form>
-      </div>
+<section class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-kicker">Zoekresultaten</div>
+      <div class="card-title">{{ keyword.term }}</div>
+      <p class="card-description">
+        Nieuwste gevonden advertenties voor dit zoekwoord.
+      </p>
     </div>
+    <a href="{{ url_for('index') }}" class="btn btn-soft">← Terug</a>
+  </div>
 
-    <div class="divider"></div>
+  {% if ads %}
+    <div class="results-list">
+      {% for ad in ads %}
+        <div class="result-item">
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            {% if ad.image_url %}
+              <img src="{{ ad.image_url }}"
+                   alt=""
+                   style="width:80px;height:80px;object-fit:cover;border-radius:10px;">
+            {% endif %}
 
-    <div style="font-size:12px;color:var(--text-soft);margin-bottom:6px;">
-      Laatst gezocht: <strong>{{ last_run }}</strong>
-    </div>
-
-    {% if results %}
-      <div class="results-list">
-        {% for r in results %}
-          <article class="result-item">
-            <h3 class="result-title">
-              <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">
-                {{ r.title }}
-              </a>
-            </h3>
-            <div class="result-meta">
-              <span class="badge-price">{{ r.price }}</span>
-              <span class="badge-time">Gevonden: {{ r.found_at }}</span>
-              <span class="chip-muted">
-                URL:
-                <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer" style="color:var(--mp-orange-soft);text-decoration:none;">
-                  {{ r.url }}
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
+              <h3 class="result-title">
+                <a href="{{ ad.url }}" target="_blank" rel="noopener">
+                  {{ ad.title }}
                 </a>
-              </span>
+              </h3>
+              <div class="result-meta">
+                {% if ad.price %}
+                  <span class="badge-price">{{ ad.price }}</span>
+                {% endif %}
+              </div>
             </div>
-          </article>
-        {% endfor %}
-      </div>
-    {% else %}
-      <div class="empty-state">
-        <strong>Geen resultaten opgeslagen.</strong>
-        Dit kan betekenen dat er nog niet gezocht is, of dat de laatste zoekactie niets opleverde.
-      </div>
-    {% endif %}
-  </section>
+
+            <!-- Kolom met datum, links naast 'Bekijk' -->
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:140px;">
+              <div class="badge-time">
+                {% if ad.posted_at %}
+                  Geplaatst: {{ ad.posted_at }}
+                {% else %}
+                  Geplaatst: onbekend
+                {% endif %}
+              </div>
+              <a href="{{ ad.url }}" target="_blank" class="btn btn-primary">
+                Bekijk
+              </a>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <strong>Geen resultaten.</strong><br>
+      Er zijn (nog) geen advertenties gevonden voor dit zoekwoord.
+    </div>
+  {% endif %}
+</section>
 {% endblock %}

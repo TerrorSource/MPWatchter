@@ -152,17 +152,27 @@
         {% for kw in keywords %}
           <div class="table-row">
             <!-- Zoekwoord + laatst gezocht -->
-            <div class="table-cell-title">
-              <span>{{ kw.term }}</span>
-              <span class="table-chip">
-                Laatst gezocht:
-                {% if kw.last_run_at == "Nooit" %}
-                  <span style="color:#fecaca;">Nooit</span>
-                {% else %}
-                  {{ kw.last_run_at }}
-                {% endif %}
-              </span>
-            </div>
+<div class="table-cell-title">
+  <a
+    href="{{ kw.mp_url }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    style="color: var(--mp-orange-soft); text-decoration: none; font-weight: 500;"
+    title="Open op Marktplaats"
+  >
+    {{ kw.term }}
+  </a>
+
+  <span class="table-chip">
+    Laatst gezocht:
+    {% if kw.last_run_at == "Nooit" %}
+      <span style="color:#fecaca;">Nooit</span>
+    {% else %}
+      {{ kw.last_run_at }}
+    {% endif %}
+  </span>
+</div>
+
 
             <!-- Interval -->
             <div>
