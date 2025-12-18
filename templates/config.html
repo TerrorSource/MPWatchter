@@ -25,6 +25,20 @@
       </div>
 
       <form method="post" action="{{ url_for('config_save_timer') }}" class="form-grid-1">
+
+        <!-- NIEUW: Platform keuze -->
+        <div class="form-field">
+          <label class="form-label">Platform</label>
+          <select class="select" name="marketplace">
+            <option value="marktplaats" {% if settings.marketplace == "marktplaats" %}selected{% endif %}>
+              Marktplaats
+            </option>
+            <option value="2dehands" {% if settings.marketplace == "2dehands" %}selected{% endif %}>
+              2dehands.be
+            </option>
+          </select>
+        </div>
+
         <div class="form-field">
           <label class="form-label">Standaard interval (minuten)</label>
           <input class="input" type="number" min="1"

@@ -25,7 +25,7 @@
         <div>
           <div class="card-kicker">Nieuwe zoekopdracht</div>
           <div class="card-title">
-            Voeg een Marktplaats zoekwoord toe
+            Voeg een {% if marketplace == "2dehands" %}2dehands{% else %}Marktplaats{% endif %} zoekwoord toe
           </div>
           <p class="card-description">
             Nieuwe zoekwoorden gebruiken automatisch je ingestelde
@@ -140,41 +140,40 @@
 
     {% if keywords %}
       <div class="table-wrapper">
-<div class="table-header">
-  <div>Zoekwoord</div>
-  <div>Interval(min)</div>
-  <div>Min. prijs</div>
-  <div>Max. prijs</div>
-  <div>Limiet</div>
-  <div style="text-align:right;">Acties</div>
-</div>
+        <div class="table-header">
+          <div>Zoekwoord</div>
+          <div>Interval(min)</div>
+          <div>Min. prijs</div>
+          <div>Max. prijs</div>
+          <div>Limiet</div>
+          <div style="text-align:right;">Acties</div>
+        </div>
 
         {% for kw in keywords %}
           <div class="table-row">
             <!-- Zoekwoord + laatst gezocht -->
-<div class="table-cell-title">
-  <a
-    href="{{ kw.mp_url }}"
-    target="_blank"
-    rel="noopener noreferrer"
-    style="color: var(--mp-orange-soft); text-decoration: none; font-weight: 500;"
-    title="Open op Marktplaats"
-  >
-    {{ kw.term }}
-  </a>
+            <div class="table-cell-title">
+              <a
+                href="{{ kw.mp_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                style="color: var(--mp-orange-soft); text-decoration: none; font-weight: 500;"
+                title="Open op {% if marketplace == '2dehands' %}2dehands{% else %}Marktplaats{% endif %}"
+              >
+                {{ kw.term }}
+              </a>
 
-  <span class="table-chip">
-    Laatst gezocht:
-    {% if kw.last_run_at == "Nooit" %}
-      <span style="color:#fecaca;">Nooit</span>
-    {% else %}
-      {{ kw.last_run_at }}
-    {% endif %}
-  </span>
-</div>
+              <span class="table-chip">
+                Laatst gezocht:
+                {% if kw.last_run_at == "Nooit" %}
+                  <span style="color:#fecaca;">Nooit</span>
+                {% else %}
+                  {{ kw.last_run_at }}
+                {% endif %}
+              </span>
+            </div>
 
-
-            <!-- Interval -->
+            <!-- Interval (autosave) -->
             <div>
               <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
                 <div class="inline-input-group">
@@ -185,8 +184,10 @@
                     min="1"
                     step="1"
                     value="{{ kw.interval_minutes }}"
+                    onchange="this.form.submit()"
                   >
-                  
+                  <input type="hidden" name="autosave" value="1">
+
                   <!-- Hidden fields zodat rest van de waarden behouden blijven -->
                   <input type="hidden" name="term" value="{{ kw.term }}">
                   <input type="hidden" name="min_price" value="{{ kw.min_price if kw.min_price is not none }}">
@@ -196,7 +197,7 @@
               </form>
             </div>
 
-            <!-- Min prijs -->
+            <!-- Min prijs (autosave) -->
             <div>
               <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
                 <div class="inline-input-group">
@@ -208,7 +209,10 @@
                     min="0"
                     step="1"
                     value="{{ kw.min_price if kw.min_price is not none }}"
+                    onchange="this.form.submit()"
                   >
+                  <input type="hidden" name="autosave" value="1">
+
                   <!-- Hidden rest -->
                   <input type="hidden" name="term" value="{{ kw.term }}">
                   <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">
@@ -218,7 +222,7 @@
               </form>
             </div>
 
-            <!-- Max prijs -->
+            <!-- Max prijs (autosave) -->
             <div>
               <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
                 <div class="inline-input-group">
@@ -230,7 +234,10 @@
                     min="0"
                     step="1"
                     value="{{ kw.max_price if kw.max_price is not none }}"
+                    onchange="this.form.submit()"
                   >
+                  <input type="hidden" name="autosave" value="1">
+
                   <!-- Hidden rest -->
                   <input type="hidden" name="term" value="{{ kw.term }}">
                   <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">
@@ -240,7 +247,7 @@
               </form>
             </div>
 
-            <!-- Limiet -->
+            <!-- Limiet (autosave) -->
             <div>
               <form method="post" action="{{ url_for('edit_keyword', keyword_id=kw.id) }}">
                 <div class="inline-input-group">
@@ -252,7 +259,10 @@
                     max="20"
                     step="1"
                     value="{{ kw.limit_per_run if kw.limit_per_run is not none }}"
+                    onchange="this.form.submit()"
                   >
+                  <input type="hidden" name="autosave" value="1">
+
                   <!-- Hidden rest -->
                   <input type="hidden" name="term" value="{{ kw.term }}">
                   <input type="hidden" name="interval" value="{{ kw.interval_minutes }}">

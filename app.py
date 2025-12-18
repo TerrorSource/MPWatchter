@@ -36,6 +36,7 @@ DB_FILE = CONFIG_DIR / "results.db"
 # ------------------------------------------------------------------------------
 
 DEFAULT_SETTINGS = {
+    "marketplace": "marktplaats",  # "marktplaats" (default) of "2dehands"
     "default_interval_minutes": 15,
     "default_limit_per_run": 5,
     "sleep_mode": "nee",       # "ja" / "nee"
@@ -53,16 +54,24 @@ def load_settings() -> dict:
     if not SETTINGS_FILE.exists():
         save_settings(DEFAULT_SETTINGS)
         return DEFAULT_SETTINGS.copy()
+
     try:
         with SETTINGS_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         data = {}
+
     merged = DEFAULT_SETTINGS.copy()
     merged.update(data or {})
-    # normaliseer types
+
     merged["default_interval_minutes"] = int(merged.get("default_interval_minutes", 15) or 15)
     merged["default_limit_per_run"] = int(merged.get("default_limit_per_run", 5) or 5)
+
+    mp = (merged.get("marketplace") or "marktplaats").strip().lower()
+    if mp not in ("marktplaats", "2dehands"):
+        mp = "marktplaats"
+    merged["marketplace"] = mp
+
     return merged
 
 
@@ -73,13 +82,6 @@ def save_settings(settings: dict) -> None:
 
 
 def load_keywords() -> list[dict]:
-    """
-    Laad keywords uit keywords.json en normaliseer naar een lijst van dicts.
-    Kan overweg met:
-    - nieuwe structuur: [ { ... }, { ... } ]
-    - fallback: { "keywords": [ ... ] }
-    - oude structuren / plain strings: "lego", "switch", ...
-    """
     if not KEYWORDS_FILE.exists():
         return []
 
@@ -147,7 +149,6 @@ def init_db() -> None:
         )
         conn.commit()
 
-        # Zorg dat oudere DB's de kolom posted_at ook krijgen
         cur.execute("PRAGMA table_info(results)")
         cols = [row[1] for row in cur.fetchall()]
         if "posted_at" not in cols:
@@ -172,24 +173,27 @@ def is_in_sleep_window(now_t: time, start: time, end: time) -> bool:
 
 
 # ------------------------------------------------------------------------------
-# Marktplaats URL-bouwer – voor GUI-link
+# Marketplace helpers
 # ------------------------------------------------------------------------------
 
-def build_marktplaats_search_url(
-    term: str,
-    postcode: str | None = None,
-    radius_km: str | None = None,
-) -> str:
-    """
-    Bouw Marktplaats-zoek-URL voor de GUI:
+def get_web_base(settings: dict) -> str:
+    mp = (settings.get("marketplace") or "marktplaats").lower()
+    if mp == "2dehands":
+        return "https://www.2dehands.be"
+    return "https://www.marktplaats.nl"
 
-    https://www.marktplaats.nl/q/lego+21026/
-    #offeredSince:Altijd|sortBy:SORT_INDEX|sortOrder:DECREASING
-    |distanceMeters:75000
-    |postcode:3208BJ
-    """
+
+def get_api_search_url(settings: dict) -> str:
+    return get_web_base(settings) + "/lrp/api/search"
+
+
+# ------------------------------------------------------------------------------
+# Search URL-bouwer – voor GUI-link (Marktplaats of 2dehands)
+# ------------------------------------------------------------------------------
+
+def build_search_url(term: str, settings: dict, postcode: str | None = None, radius_km: str | None = None) -> str:
     query = term.strip().replace(" ", "+")
-    base = f"https://www.marktplaats.nl/q/{query}/#offeredSince:Altijd|sortBy:SORT_INDEX|sortOrder:DECREASING"
+    base = f"{get_web_base(settings)}/q/{query}/#offeredSince:Altijd|sortBy:SORT_INDEX|sortOrder:DECREASING"
 
     if radius_km and radius_km != "alle":
         try:
@@ -223,9 +227,6 @@ def _format_epoch_to_str(v) -> str:
 
 
 def _extract_posted_at(item: dict) -> str:
-    """
-    Probeer uit de Marktplaats JSON een plaatsingsdatum/tijd te halen.
-    """
     for key in ("date", "dateTime", "startTime", "startDateTime", "startDate", "postedAt"):
         v = item.get(key)
         if isinstance(v, str) and v.strip():
@@ -261,14 +262,6 @@ def _extract_posted_at(item: dict) -> str:
 
 
 def parse_posted_at_to_dt(posted_at: str | None, fallback_first_seen: str | None) -> datetime:
-    """
-    Zet 'posted_at' om naar datetime zodat we op nieuw -> oud kunnen sorteren.
-
-    Ondersteunt o.a.:
-    - ISO strings (2025-11-23 12:34, 2025-11-23T12:34:00)
-    - '8 sep 25', '23 nov 25'
-    Valt terug op first_seen_at als parsing niet lukt.
-    """
     if posted_at:
         s = posted_at.strip()
         if s:
@@ -309,14 +302,10 @@ def parse_posted_at_to_dt(posted_at: str | None, fallback_first_seen: str | None
 
 
 # ------------------------------------------------------------------------------
-# Scrapen via JSON API
+# Scrapen via JSON API (Marktplaats of 2dehands)
 # ------------------------------------------------------------------------------
 
-def fetch_marktplaats_results(term: str, settings: dict, limit: int) -> list[dict]:
-    """
-    Haal advertenties op voor een zoekterm, gesorteerd op nieuw → oud
-    via https://www.marktplaats.nl/lrp/api/search
-    """
+def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
     postcode = settings.get("postcode") or None
     radius_km = settings.get("radius_km", "alle")
 
@@ -335,7 +324,9 @@ def fetch_marktplaats_results(term: str, settings: dict, limit: int) -> list[dic
         )
     }
 
-    api_url = "https://www.marktplaats.nl/lrp/api/search"
+    api_url = get_api_search_url(settings)
+    web_base = get_web_base(settings)
+
     params = {
         "query": term,
         "sortBy": "SORT_INDEX",
@@ -395,7 +386,7 @@ def fetch_marktplaats_results(term: str, settings: dict, limit: int) -> list[dic
                     if url_path.startswith("http"):
                         url = url_path
                     else:
-                        url = f"https://www.marktplaats.nl{url_path}"
+                        url = f"{web_base}{url_path}"
 
                 media = item.get("media") or {}
                 if isinstance(media, dict):
@@ -485,10 +476,7 @@ def get_results_for_keyword(keyword_id: int, limit: int = 50) -> list[dict]:
     ads: list[dict] = []
     for r in rows:
         d = dict(r)
-        sort_dt = parse_posted_at_to_dt(
-            d.get("posted_at"),
-            d.get("first_seen_at"),
-        )
+        sort_dt = parse_posted_at_to_dt(d.get("posted_at"), d.get("first_seen_at"))
         d["_sort_dt"] = sort_dt
         ads.append(d)
 
@@ -511,7 +499,7 @@ def reset_results_for_keyword(keyword_id: int) -> None:
 
 
 # ------------------------------------------------------------------------------
-# Telegram helpers
+# Telegram helpers (ongewijzigd; jouw foto-issue pakken we later aan)
 # ------------------------------------------------------------------------------
 
 def send_telegram_message(text: str, settings: dict) -> None:
@@ -551,11 +539,7 @@ def send_telegram_ad(ad: dict, settings: dict) -> None:
         caption = f"Titel = {title}\nPrijs = {price}"
 
     reply_markup = {
-        "inline_keyboard": [
-            [
-                {"text": "Bekijk advertentie", "url": url}
-            ]
-        ]
+        "inline_keyboard": [[{"text": "Bekijk advertentie", "url": url}]]
     }
 
     try:
@@ -588,14 +572,13 @@ def send_telegram_ad(ad: dict, settings: dict) -> None:
 
 def run_search_for_keyword(keyword: dict, settings: dict, manual: bool = False) -> tuple[int, int]:
     term = keyword["term"]
-    interval = int(keyword.get("interval_minutes") or settings["default_interval_minutes"])
     limit_per_run = int(keyword.get("limit_per_run") or settings["default_limit_per_run"])
     min_price = keyword.get("min_price")
     max_price = keyword.get("max_price")
 
     limit_per_run = max(1, min(20, limit_per_run))
 
-    raw_ads = fetch_marktplaats_results(term, settings, limit_per_run)
+    raw_ads = fetch_results(term, settings, limit_per_run)
 
     def parse_price_to_int(p: str) -> int | None:
         if not p:
@@ -663,7 +646,6 @@ def scheduler_loop():
 
             now = datetime.now()
             now_t = now.time()
-
             in_sleep = sleep_mode and is_in_sleep_window(now_t, sleep_start, sleep_end)
 
             for kw in keywords:
@@ -673,10 +655,7 @@ def scheduler_loop():
                 interval_minutes = int(kw.get("interval_minutes") or settings["default_interval_minutes"])
                 interval = timedelta(minutes=interval_minutes)
 
-                if in_sleep and interval < timedelta(hours=1):
-                    eff_interval = timedelta(hours=1)
-                else:
-                    eff_interval = interval
+                eff_interval = timedelta(hours=1) if (in_sleep and interval < timedelta(hours=1)) else interval
 
                 last_run_at_str = kw.get("last_run_at") or "Nooit"
                 last_dt = None
@@ -688,7 +667,7 @@ def scheduler_loop():
 
                 if (last_dt is None) or (now - last_dt >= eff_interval):
                     try:
-                        total, new_count = run_search_for_keyword(kw, settings, manual=False)
+                        run_search_for_keyword(kw, settings, manual=False)
                         kw["last_run_at"] = datetime.now().isoformat(timespec="seconds")
                         save_keywords(keywords)
                     except Exception:
@@ -722,8 +701,9 @@ def index():
     radius_km = (settings.get("radius_km") or "alle").strip()
 
     for kw in keywords:
-        kw["mp_url"] = build_marktplaats_search_url(
+        kw["mp_url"] = build_search_url(
             kw["term"],
+            settings=settings,
             postcode=postcode if postcode else None,
             radius_km=radius_km,
         )
@@ -734,6 +714,7 @@ def index():
         default_interval=settings["default_interval_minutes"],
         default_limit_per_run=settings["default_limit_per_run"],
         postcode=postcode,
+        marketplace=settings.get("marketplace", "marktplaats"),
     )
 
 
@@ -771,12 +752,13 @@ def add_keyword():
 
 @app.route("/keyword/<int:keyword_id>/edit", methods=["POST"])
 def edit_keyword(keyword_id: int):
-    settings = load_settings()
     keywords = load_keywords()
-    kw = next((k for k in keywords if int(k.get("id")) == keyword_id), None)
+    kw = next((k for k in keywords if int(k.get("id") or 0) == keyword_id), None)
     if not kw:
         flash("Zoekwoord niet gevonden.", "error")
         return redirect(url_for("index"))
+
+    autosave = (request.form.get("autosave") or "").strip() == "1"
 
     term = (request.form.get("term") or kw["term"]).strip()
     interval = request.form.get("interval")
@@ -785,7 +767,8 @@ def edit_keyword(keyword_id: int):
     limit_per_run = request.form.get("limit_per_run")
 
     kw["term"] = term
-    if interval:
+
+    if interval is not None and interval != "":
         try:
             kw["interval_minutes"] = max(1, int(interval))
         except ValueError:
@@ -794,16 +777,19 @@ def edit_keyword(keyword_id: int):
     kw["min_price"] = min_price if min_price not in ("", None) else None
     kw["max_price"] = max_price if max_price not in ("", None) else None
 
-    if limit_per_run:
+    if limit_per_run is not None and limit_per_run != "":
         try:
             l = int(limit_per_run)
-            l = max(1, min(20, l))
-            kw["limit_per_run"] = l
+            kw["limit_per_run"] = max(1, min(20, l))
         except ValueError:
             pass
 
     save_keywords(keywords)
-    flash(f"Zoekwoord '{term}' bijgewerkt.", "success")
+
+    # voorkom flash spam bij autosave
+    if not autosave:
+        flash(f"Zoekwoord '{term}' bijgewerkt.", "success")
+
     return redirect(url_for("index"))
 
 
@@ -866,11 +852,7 @@ def results(keyword_id: int):
         return redirect(url_for("index"))
 
     ads = get_results_for_keyword(keyword_id, limit=100)
-    return render_template(
-        "results.html",
-        keyword=kw,
-        ads=ads,
-    )
+    return render_template("results.html", keyword=kw, ads=ads)
 
 
 # ------------------------------------------------------------------------------
@@ -886,6 +868,11 @@ def config_view():
 @app.route("/config/timer", methods=["POST"])
 def config_save_timer():
     settings = load_settings()
+
+    marketplace = (request.form.get("marketplace") or settings.get("marketplace") or "marktplaats").strip().lower()
+    if marketplace not in ("marktplaats", "2dehands"):
+        marketplace = "marktplaats"
+    settings["marketplace"] = marketplace
 
     default_interval = request.form.get("default_interval_minutes")
     default_limit = request.form.get("default_limit_per_run")
