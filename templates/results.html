@@ -1,65 +1,81 @@
 {% extends "base.html" %}
 
-{% block title %}Resultaten · {{ keyword.term }}{% endblock %}
+{% block title %}Resultaten · MPWatcher{% endblock %}
 
 {% block content %}
 <section class="card">
-  <div class="card-header">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
     <div>
-      <div class="card-kicker">Zoekresultaten</div>
+      <div class="card-kicker">Resultaten</div>
       <div class="card-title">{{ keyword.term }}</div>
       <p class="card-description">
-        Nieuwste gevonden advertenties voor dit zoekwoord.
+        Gesorteerd op nieuw → oud. Blocklist is <strong>{{ "Aan" if settings.blocklist_enabled == "ja" else "Uit" }}</strong>.
       </p>
     </div>
-    <a href="{{ url_for('index') }}" class="btn btn-soft">← Terug</a>
+    <a class="btn btn-soft" href="{{ url_for('index') }}">← Terug</a>
   </div>
 
   {% if ads %}
-    <div class="results-list">
+    <div class="table-wrapper">
+      <!-- Header -->
+      <div class="table-header" style="grid-template-columns: 110px 1fr 140px 130px 75px 120px;">
+        <div>Datum</div>
+        <div>Titel</div>
+        <div>Prijs</div>
+        <div>Verkoper</div>
+        <div>Blokkeer</div>
+        <div style="text-align:right;">Bekijk</div>
+      </div>
+
       {% for ad in ads %}
-        <div class="result-item">
-          <div style="display:flex;gap:12px;align-items:flex-start;">
-            {% if ad.image_url %}
-              <img src="{{ ad.image_url }}"
-                   alt=""
-                   style="width:80px;height:80px;object-fit:cover;border-radius:10px;">
+        <div class="table-row" style="grid-template-columns: 110px 1fr 140px 130px 75px 120px;">
+          <!-- Datum -->
+          <div style="color:var(--text-muted);">
+            {{ ad.posted_at if ad.posted_at else "—" }}
+          </div>
+
+          <!-- Titel -->
+          <div class="table-cell-title" style="min-width:0;">
+            <a href="{{ ad.url }}" target="_blank" rel="noopener noreferrer"
+               style="color: var(--mp-orange-soft); text-decoration: none; font-weight: 600; display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              {{ ad.title }}
+            </a>
+          </div>
+
+          <!-- Prijs -->
+          <div style="white-space:nowrap;">
+            {{ ad.price if ad.price else "—" }}
+          </div>
+
+          <!-- Verkoper -->
+          <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            {{ ad.seller if ad.seller else "—" }}
+          </div>
+
+          <!-- Blokkeer -->
+          <div>
+            {% if ad.seller %}
+              <form method="post" action="{{ url_for('blocklist_add') }}">
+                <input type="hidden" name="seller" value="{{ ad.seller }}">
+                <input type="hidden" name="keyword_id" value="{{ keyword.id }}">
+                <button class="btn btn-ghost" type="submit">Blokkeer</button>
+              </form>
+            {% else %}
+              <span style="color:var(--text-muted);">—</span>
             {% endif %}
+          </div>
 
-            <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
-              <h3 class="result-title">
-                <a href="{{ ad.url }}" target="_blank" rel="noopener">
-                  {{ ad.title }}
-                </a>
-              </h3>
-              <div class="result-meta">
-                {% if ad.price %}
-                  <span class="badge-price">{{ ad.price }}</span>
-                {% endif %}
-              </div>
-            </div>
-
-            <!-- Kolom met datum, links naast 'Bekijk' -->
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:140px;">
-              <div class="badge-time">
-                {% if ad.posted_at %}
-                  Geplaatst: {{ ad.posted_at }}
-                {% else %}
-                  Geplaatst: onbekend
-                {% endif %}
-              </div>
-              <a href="{{ ad.url }}" target="_blank" class="btn btn-primary">
-                Bekijk
-              </a>
-            </div>
+          <!-- Bekijk -->
+          <div style="text-align:right;">
+            <a class="btn btn-primary" href="{{ ad.url }}" target="_blank" rel="noopener noreferrer">Bekijk</a>
           </div>
         </div>
       {% endfor %}
     </div>
   {% else %}
     <div class="empty-state">
-      <strong>Geen resultaten.</strong><br>
-      Er zijn (nog) geen advertenties gevonden voor dit zoekwoord.
+      <strong>Geen resultaten gevonden.</strong>
+      Probeer handmatig te zoeken of wacht op de volgende run.
     </div>
   {% endif %}
 </section>

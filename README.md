@@ -1,19 +1,18 @@
 # MPWatcher – Marktplaats Advertentie Watcher
 
-MPWatcher is een Docker-based webapplicatie waarmee je automatisch advertenties op Marktplaats.nl en 2dehands.be kan monitoren op basis van zoekwoorden en **direct via Telegram meldingen ontvangt** bij nieuwe advertenties.
+MPWatcher is een Docker-based webapplicatie waarmee je automatisch Marktplaats-advertenties monitort op basis van zoekwoorden en **direct via Telegram meldingen ontvangt** bij nieuwe advertenties.
 
-✅ Webinterface
-✅ Telegram notificaties
-✅ Per zoekwoord instelbaar
-✅ Docker / Portainer / NAS-proof
-✅ Persistente configuratie via volume
-✅ Keuze uit Marktplaats of 2dehands
+✅ Webinterface  
+✅ Telegram notificaties  
+✅ Per zoekwoord instelbaar  
+✅ Docker / Portainer / NAS-proof  
+✅ Persistente configuratie via volume  
 
 ---
 
 ## 🚀 Functionaliteit
 
-- Monitor meerdere zoekwoorden  
+- Monitor meerdere Marktplaats zoekwoorden  
 - Alleen **nieuwe advertenties** worden gemeld  
 - Telegram berichten bevatten:
   - Titel
@@ -77,8 +76,6 @@ Ga in de webinterface naar **Configuratie**.
   Wordt gebruikt voor nieuwe zoekwoorden  
 - **Limiet per zoekopdracht**  
   Maximaal aantal advertenties per run (1–20)
-- **Website**  
-  Keuze uit Marktplaats of 2dehands
 
 ### 🌙 Slaapstand (nachtmodus)
 

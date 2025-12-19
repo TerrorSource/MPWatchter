@@ -9,7 +9,7 @@
       <div class="card-kicker">Instellingen</div>
       <div class="card-title">MPWatcher configuratie</div>
       <p class="card-description">
-        Stel hier timers, slaapstand, locatie en Telegram-meldingen in.
+        Stel hier marketplace, timers, slaapstand, locatie, Telegram en de blocklist in.
       </p>
     </div>
   </div>
@@ -20,36 +20,28 @@
       <div class="card-header">
         <div>
           <div class="card-kicker">Automatisering</div>
-          <div class="card-title">Timer, slaapstand & locatie</div>
+          <div class="card-title">Marketplace, timer, slaapstand & locatie</div>
         </div>
       </div>
 
       <form method="post" action="{{ url_for('config_save_timer') }}" class="form-grid-1">
-
-        <!-- NIEUW: Platform keuze -->
         <div class="form-field">
-          <label class="form-label">Platform</label>
+          <label class="form-label">Marketplace</label>
           <select class="select" name="marketplace">
-            <option value="marktplaats" {% if settings.marketplace == "marktplaats" %}selected{% endif %}>
-              Marktplaats
-            </option>
-            <option value="2dehands" {% if settings.marketplace == "2dehands" %}selected{% endif %}>
-              2dehands.be
-            </option>
+            <option value="marktplaats" {% if settings.marketplace == "marktplaats" %}selected{% endif %}>Marktplaats.nl</option>
+            <option value="2dehands" {% if settings.marketplace == "2dehands" %}selected{% endif %}>2dehands.be</option>
           </select>
         </div>
 
         <div class="form-field">
           <label class="form-label">Standaard interval (minuten)</label>
-          <input class="input" type="number" min="1"
-                 name="default_interval_minutes"
+          <input class="input" type="number" min="1" name="default_interval_minutes"
                  value="{{ settings.default_interval_minutes }}">
         </div>
 
         <div class="form-field">
           <label class="form-label">Standaard limiet per zoekopdracht</label>
-          <input class="input" type="number" min="1" max="20"
-                 name="default_limit_per_run"
+          <input class="input" type="number" min="1" max="20" name="default_limit_per_run"
                  value="{{ settings.default_limit_per_run }}">
         </div>
 
@@ -66,15 +58,11 @@
         <div class="form-grid">
           <div class="form-field">
             <label class="form-label">Slaap start</label>
-            <input class="input" type="time"
-                   name="sleep_start"
-                   value="{{ settings.sleep_start }}">
+            <input class="input" type="time" name="sleep_start" value="{{ settings.sleep_start }}">
           </div>
           <div class="form-field">
             <label class="form-label">Slaap einde</label>
-            <input class="input" type="time"
-                   name="sleep_end"
-                   value="{{ settings.sleep_end }}">
+            <input class="input" type="time" name="sleep_end" value="{{ settings.sleep_end }}">
           </div>
         </div>
 
@@ -82,10 +70,7 @@
 
         <div class="form-field">
           <label class="form-label">Postcode</label>
-          <input class="input" type="text"
-                 name="postcode"
-                 placeholder="1234AB"
-                 value="{{ settings.postcode }}">
+          <input class="input" type="text" name="postcode" placeholder="1234AB" value="{{ settings.postcode }}">
         </div>
 
         <div class="form-field">
@@ -117,16 +102,12 @@
       <form method="post" action="{{ url_for('config_save_telegram') }}" class="form-grid-1">
         <div class="form-field">
           <label class="form-label">Bot token</label>
-          <input class="input" type="text"
-                 name="telegram_bot_id"
-                 value="{{ settings.telegram_bot_id }}">
+          <input class="input" type="text" name="telegram_bot_id" value="{{ settings.telegram_bot_id }}">
         </div>
 
         <div class="form-field">
           <label class="form-label">Chat ID</label>
-          <input class="input" type="text"
-                 name="telegram_chat_id"
-                 value="{{ settings.telegram_chat_id }}">
+          <input class="input" type="text" name="telegram_chat_id" value="{{ settings.telegram_chat_id }}">
         </div>
 
         <div class="form-field">
@@ -147,5 +128,43 @@
       </form>
     </section>
   </div>
+
+  <!-- BLOCKLIST -->
+  <section class="card" style="margin-top:16px;">
+    <div class="card-header">
+      <div>
+        <div class="card-kicker">Filter</div>
+        <div class="card-title">Blocklist verkopers</div>
+        <p class="card-description">
+          Als dit aan staat, worden advertenties van geblokkeerde verkopers genegeerd.
+        </p>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('blocklist_save') }}" class="form-grid-1">
+      <div class="form-field">
+        <label class="form-label">Blocklist</label>
+        <select class="select" name="blocklist_enabled">
+          <option value="nee" {% if settings.blocklist_enabled == "nee" %}selected{% endif %}>Uit</option>
+          <option value="ja" {% if settings.blocklist_enabled == "ja" %}selected{% endif %}>Aan</option>
+        </select>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Geblokkeerde verkopers (1 per regel)</label>
+        <textarea
+          class="input"
+          name="blocked_sellers_text"
+          rows="8"
+          style="border-radius:12px; padding:12px; resize:vertical; min-height:180px;"
+          placeholder="Bijv.&#10;Gert&#10;arnaud"
+        >{{ blocked_text }}</textarea>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-primary" type="submit">Blocklist opslaan</button>
+      </div>
+    </form>
+  </section>
 </section>
 {% endblock %}

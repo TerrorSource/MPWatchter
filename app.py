@@ -3,8 +3,10 @@ import json
 import sqlite3
 import threading
 import time as time_module
+import re
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from typing import Optional
 
 import requests
 from flask import (
@@ -31,23 +33,42 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 KEYWORDS_FILE = CONFIG_DIR / "keywords.json"
 DB_FILE = CONFIG_DIR / "results.db"
 
-# ------------------------------------------------------------------------------
-# Default settings & helpers
-# ------------------------------------------------------------------------------
-
 DEFAULT_SETTINGS = {
-    "marketplace": "marktplaats",  # "marktplaats" (default) of "2dehands"
+    "marketplace": "marktplaats",  # marktplaats | 2dehands
     "default_interval_minutes": 15,
     "default_limit_per_run": 5,
-    "sleep_mode": "nee",       # "ja" / "nee"
-    "sleep_start": "23:00",    # HH:MM
-    "sleep_end": "07:00",      # HH:MM
+
+    "sleep_mode": "nee",
+    "sleep_start": "23:00",
+    "sleep_end": "07:00",
+
     "postcode": "",
-    "radius_km": "alle",       # wordt vertaald naar distanceMeters voor de API
+    "radius_km": "alle",
+
     "telegram_bot_id": "",
     "telegram_chat_id": "",
-    "manual_telegram": "nee",  # "ja" / "nee"
+    "manual_telegram": "nee",
+
+    # Blocklist
+    "blocklist_enabled": "nee",
+    "blocked_sellers": [],
 }
+
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0 Safari/537.36"
+)
+
+
+# ------------------------------------------------------------------------------
+# Helpers: settings / keywords
+# ------------------------------------------------------------------------------
+
+def _norm_yesno(v: str, default="nee") -> str:
+    if not v:
+        return default
+    return "ja" if str(v).strip().lower() == "ja" else "nee"
 
 
 def load_settings() -> dict:
@@ -68,9 +89,14 @@ def load_settings() -> dict:
     merged["default_limit_per_run"] = int(merged.get("default_limit_per_run", 5) or 5)
 
     mp = (merged.get("marketplace") or "marktplaats").strip().lower()
-    if mp not in ("marktplaats", "2dehands"):
-        mp = "marktplaats"
-    merged["marketplace"] = mp
+    merged["marketplace"] = "2dehands" if mp in ("2dehands", "2dehands.be", "2dehandsbe") else "marktplaats"
+
+    merged["sleep_mode"] = _norm_yesno(merged.get("sleep_mode", "nee"))
+    merged["manual_telegram"] = _norm_yesno(merged.get("manual_telegram", "nee"))
+
+    merged["blocklist_enabled"] = _norm_yesno(merged.get("blocklist_enabled", "nee"))
+    if not isinstance(merged.get("blocked_sellers"), list):
+        merged["blocked_sellers"] = []
 
     return merged
 
@@ -116,6 +142,10 @@ def load_keywords() -> list[dict]:
 
         normed.append(item)
 
+    for idx, kw in enumerate(normed, start=1):
+        if kw.get("id") is None:
+            kw["id"] = idx
+
     return normed
 
 
@@ -126,6 +156,10 @@ def save_keywords(keywords: list[dict]) -> None:
     with KEYWORDS_FILE.open("w", encoding="utf-8") as f:
         json.dump(keywords, f, ensure_ascii=False, indent=2)
 
+
+# ------------------------------------------------------------------------------
+# DB
+# ------------------------------------------------------------------------------
 
 def init_db() -> None:
     conn = sqlite3.connect(DB_FILE)
@@ -141,6 +175,7 @@ def init_db() -> None:
                 price TEXT,
                 url TEXT,
                 image_url TEXT,
+                seller TEXT,
                 first_seen_at TEXT,
                 posted_at TEXT,
                 UNIQUE(keyword_id, ad_id)
@@ -153,7 +188,9 @@ def init_db() -> None:
         cols = [row[1] for row in cur.fetchall()]
         if "posted_at" not in cols:
             cur.execute("ALTER TABLE results ADD COLUMN posted_at TEXT")
-            conn.commit()
+        if "seller" not in cols:
+            cur.execute("ALTER TABLE results ADD COLUMN seller TEXT")
+        conn.commit()
     finally:
         conn.close()
 
@@ -176,24 +213,17 @@ def is_in_sleep_window(now_t: time, start: time, end: time) -> bool:
 # Marketplace helpers
 # ------------------------------------------------------------------------------
 
-def get_web_base(settings: dict) -> str:
-    mp = (settings.get("marketplace") or "marktplaats").lower()
-    if mp == "2dehands":
-        return "https://www.2dehands.be"
-    return "https://www.marktplaats.nl"
+def get_domain(settings: dict) -> str:
+    return "www.2dehands.be" if (settings.get("marketplace") == "2dehands") else "www.marktplaats.nl"
 
 
-def get_api_search_url(settings: dict) -> str:
-    return get_web_base(settings) + "/lrp/api/search"
+def build_search_url(term: str, settings: dict) -> str:
+    domain = get_domain(settings)
+    postcode = (settings.get("postcode") or "").strip()
+    radius_km = (settings.get("radius_km") or "alle").strip()
 
-
-# ------------------------------------------------------------------------------
-# Search URL-bouwer – voor GUI-link (Marktplaats of 2dehands)
-# ------------------------------------------------------------------------------
-
-def build_search_url(term: str, settings: dict, postcode: str | None = None, radius_km: str | None = None) -> str:
     query = term.strip().replace(" ", "+")
-    base = f"{get_web_base(settings)}/q/{query}/#offeredSince:Altijd|sortBy:SORT_INDEX|sortOrder:DECREASING"
+    base = f"https://{domain}/q/{query}/#offeredSince:Altijd|sortBy:SORT_INDEX|sortOrder:DECREASING"
 
     if radius_km and radius_km != "alle":
         try:
@@ -209,7 +239,7 @@ def build_search_url(term: str, settings: dict, postcode: str | None = None, rad
 
 
 # ------------------------------------------------------------------------------
-# Helpers: plaatsingsdatum uit JSON trekken / parsen
+# posted_at parsing
 # ------------------------------------------------------------------------------
 
 def _format_epoch_to_str(v) -> str:
@@ -245,8 +275,7 @@ def _extract_posted_at(item: dict) -> str:
                     if s:
                         return s
 
-    nested_keys = ("dateInfo", "metadata", "timing")
-    for nk in nested_keys:
+    for nk in ("dateInfo", "metadata", "timing"):
         nv = item.get(nk)
         if isinstance(nv, dict):
             for sub in ("date", "dateTime", "start", "value"):
@@ -257,7 +286,6 @@ def _extract_posted_at(item: dict) -> str:
                     s = _format_epoch_to_str(sv)
                     if s:
                         return s
-
     return ""
 
 
@@ -268,7 +296,6 @@ def parse_posted_at_to_dt(posted_at: str | None, fallback_first_seen: str | None
             for sep in [",", "|"]:
                 if sep in s:
                     s = s.split(sep, 1)[0].strip()
-
             try:
                 return datetime.fromisoformat(s)
             except Exception:
@@ -302,12 +329,147 @@ def parse_posted_at_to_dt(posted_at: str | None, fallback_first_seen: str | None
 
 
 # ------------------------------------------------------------------------------
-# Scrapen via JSON API (Marktplaats of 2dehands)
+# Blocklist helpers
 # ------------------------------------------------------------------------------
 
-def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
-    postcode = settings.get("postcode") or None
-    radius_km = settings.get("radius_km", "alle")
+def _norm_name(s: str) -> str:
+    return (s or "").strip()
+
+
+def get_blocklist(settings: dict) -> set[str]:
+    if settings.get("blocklist_enabled") != "ja":
+        return set()
+    names = settings.get("blocked_sellers") or []
+    return {_norm_name(x).lower() for x in names if _norm_name(x)}
+
+
+def add_blocked_seller(settings: dict, name: str) -> dict:
+    name = _norm_name(name)
+    if not name:
+        return settings
+
+    current = settings.get("blocked_sellers") or []
+    existing_lower = {str(x).strip().lower() for x in current if str(x).strip()}
+    if name.lower() not in existing_lower:
+        current.append(name)
+    settings["blocked_sellers"] = current
+    return settings
+
+
+# ------------------------------------------------------------------------------
+# Seller extraction (API + HTML fallback)
+# ------------------------------------------------------------------------------
+
+def _extract_seller_from_api_item(item: dict) -> str:
+    direct_keys = (
+        "sellerName", "seller", "vendor", "userName", "username",
+        "advertiserName", "advertiser"
+    )
+    for k in direct_keys:
+        v = item.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):
+            for sub in ("name", "displayName", "username", "userName", "sellerName"):
+                sv = v.get(sub)
+                if isinstance(sv, str) and sv.strip():
+                    return sv.strip()
+
+    nested_candidates = (
+        "sellerInformation", "contactInformation", "user", "account",
+        "sellerInfo", "contact", "advertiser", "profile"
+    )
+    for nk in nested_candidates:
+        nv = item.get(nk)
+        if isinstance(nv, dict):
+            for sub in ("name", "displayName", "username", "userName", "sellerName"):
+                sv = nv.get(sub)
+                if isinstance(sv, str) and sv.strip():
+                    return sv.strip()
+    return ""
+
+
+def _extract_seller_from_html(html: str) -> str:
+    # 1) JSON-LD blocks
+    for m in re.finditer(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
+        blob = m.group(1).strip()
+        if not blob:
+            continue
+        try:
+            data = json.loads(blob)
+        except Exception:
+            continue
+
+        # Sometimes it’s a list
+        candidates = data if isinstance(data, list) else [data]
+        for obj in candidates:
+            if not isinstance(obj, dict):
+                continue
+            seller = obj.get("seller")
+            if isinstance(seller, dict):
+                nm = seller.get("name")
+                if isinstance(nm, str) and nm.strip():
+                    return nm.strip()
+            author = obj.get("author")
+            if isinstance(author, dict):
+                nm = author.get("name")
+                if isinstance(nm, str) and nm.strip():
+                    return nm.strip()
+
+    # 2) Common preloaded state / inline JSON patterns
+    patterns = [
+        r'"sellerName"\s*:\s*"([^"]+)"',
+        r'"displayName"\s*:\s*"([^"]+)"',
+        r'"userName"\s*:\s*"([^"]+)"',
+        r'"username"\s*:\s*"([^"]+)"',
+        r'"advertiserName"\s*:\s*"([^"]+)"',
+        r'"seller"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"',
+        r'"account"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"',
+    ]
+    for pat in patterns:
+        mm = re.search(pat, html, re.IGNORECASE)
+        if mm and mm.group(1).strip():
+            return mm.group(1).strip()
+
+    return ""
+
+
+def fetch_seller_from_ad_page(url: str) -> str:
+    if not url:
+        return ""
+    try:
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
+        resp.raise_for_status()
+        html = resp.text
+        return _extract_seller_from_html(html)
+    except Exception:
+        return ""
+
+
+def enrich_ads_with_seller(ads: list[dict]) -> list[dict]:
+    """
+    Vul seller aan voor ads waar die leeg is. (HTML fallback)
+    """
+    for ad in ads:
+        if (ad.get("seller") or "").strip():
+            continue
+        url = (ad.get("url") or "").strip()
+        if not url:
+            continue
+        seller = fetch_seller_from_ad_page(url)
+        if seller:
+            ad["seller"] = seller
+    return ads
+
+
+# ------------------------------------------------------------------------------
+# Fetch results (API)
+# ------------------------------------------------------------------------------
+
+def fetch_market_results(term: str, settings: dict, limit: int) -> list[dict]:
+    domain = get_domain(settings)
+    postcode = (settings.get("postcode") or "").strip() or None
+    radius_km = (settings.get("radius_km") or "alle").strip()
 
     distance_meters = None
     if radius_km and radius_km != "alle":
@@ -316,17 +478,8 @@ def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
         except Exception:
             distance_meters = None
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0 Safari/537.36"
-        )
-    }
-
-    api_url = get_api_search_url(settings)
-    web_base = get_web_base(settings)
-
+    headers = {"User-Agent": USER_AGENT}
+    api_url = f"https://{domain}/lrp/api/search"
     params = {
         "query": term,
         "sortBy": "SORT_INDEX",
@@ -372,6 +525,7 @@ def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
                 url = ""
                 image_url = ""
                 posted_at = _extract_posted_at(item)
+                seller = _extract_seller_from_api_item(item)
 
                 price_info = item.get("priceInfo") or {}
                 if "priceDisplay" in price_info:
@@ -383,10 +537,10 @@ def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
 
                 url_path = item.get("url") or item.get("vipUrl") or item.get("relativeUrl")
                 if url_path:
-                    if url_path.startswith("http"):
-                        url = url_path
+                    if str(url_path).startswith("http"):
+                        url = str(url_path)
                     else:
-                        url = f"{web_base}{url_path}"
+                        url = f"https://{domain}{url_path}"
 
                 media = item.get("media") or {}
                 if isinstance(media, dict):
@@ -407,6 +561,7 @@ def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
                         "url": url,
                         "image_url": image_url,
                         "posted_at": posted_at,
+                        "seller": seller,
                     }
                 )
 
@@ -417,10 +572,15 @@ def fetch_results(term: str, settings: dict, limit: int) -> list[dict]:
 
 
 # ------------------------------------------------------------------------------
-# DB helpers
+# DB helpers (insert + update missing seller)
 # ------------------------------------------------------------------------------
 
 def store_new_results(keyword_id: int, ads: list[dict]) -> list[dict]:
+    """
+    Insert new rows.
+    If the row already exists, we *optionally* update seller/posted_at/image_url when missing.
+    This fixes: manual search where earlier rows had empty seller.
+    """
     if not ads:
         return []
 
@@ -429,41 +589,74 @@ def store_new_results(keyword_id: int, ads: list[dict]) -> list[dict]:
     new_ads: list[dict] = []
     try:
         cur = conn.cursor()
+
         for ad in ads:
+            ad_id = ad["ad_id"]
+            title = ad.get("title", "")
+            price = ad.get("price", "")
+            url = ad.get("url", "")
+            image_url = ad.get("image_url", "")
+            seller = ad.get("seller", "")
+            posted_at = ad.get("posted_at", "")
+
+            now_iso = datetime.now().isoformat(timespec="seconds")
+
             try:
                 cur.execute(
                     """
-                    INSERT INTO results (keyword_id, ad_id, title, price, url, image_url, first_seen_at, posted_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO results (keyword_id, ad_id, title, price, url, image_url, seller, first_seen_at, posted_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        keyword_id,
-                        ad["ad_id"],
-                        ad.get("title", ""),
-                        ad.get("price", ""),
-                        ad.get("url", ""),
-                        ad.get("image_url", ""),
-                        datetime.now().isoformat(timespec="seconds"),
-                        ad.get("posted_at", ""),
-                    ),
+                    (keyword_id, ad_id, title, price, url, image_url, seller, now_iso, posted_at),
                 )
                 new_ads.append(ad)
             except sqlite3.IntegrityError:
-                continue
+                # Already exists -> update missing fields if we have better data now
+                cur.execute(
+                    """
+                    UPDATE results
+                    SET
+                        title = COALESCE(NULLIF(?, ''), title),
+                        price = COALESCE(NULLIF(?, ''), price),
+                        url = COALESCE(NULLIF(?, ''), url),
+                        image_url = CASE
+                            WHEN (image_url IS NULL OR image_url = '') AND (? IS NOT NULL AND ? != '') THEN ?
+                            ELSE image_url
+                        END,
+                        posted_at = CASE
+                            WHEN (posted_at IS NULL OR posted_at = '') AND (? IS NOT NULL AND ? != '') THEN ?
+                            ELSE posted_at
+                        END,
+                        seller = CASE
+                            WHEN (seller IS NULL OR seller = '') AND (? IS NOT NULL AND ? != '') THEN ?
+                            ELSE seller
+                        END
+                    WHERE keyword_id = ? AND ad_id = ?
+                    """,
+                    (
+                        title, price, url,
+                        image_url, image_url, image_url,
+                        posted_at, posted_at, posted_at,
+                        seller, seller, seller,
+                        keyword_id, ad_id
+                    ),
+                )
+
         conn.commit()
     finally:
         conn.close()
+
     return new_ads
 
 
-def get_results_for_keyword(keyword_id: int, limit: int = 50) -> list[dict]:
+def get_results_for_keyword(keyword_id: int, limit: int = 200) -> list[dict]:
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     try:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT title, price, url, image_url, first_seen_at, posted_at
+            SELECT title, price, url, image_url, seller, first_seen_at, posted_at
             FROM results
             WHERE keyword_id = ?
             """,
@@ -481,7 +674,6 @@ def get_results_for_keyword(keyword_id: int, limit: int = 50) -> list[dict]:
         ads.append(d)
 
     ads.sort(key=lambda x: x["_sort_dt"], reverse=True)
-
     for d in ads:
         d.pop("_sort_dt", None)
 
@@ -499,12 +691,12 @@ def reset_results_for_keyword(keyword_id: int) -> None:
 
 
 # ------------------------------------------------------------------------------
-# Telegram helpers (ongewijzigd; jouw foto-issue pakken we later aan)
+# Telegram (oude werkende versie)
 # ------------------------------------------------------------------------------
 
 def send_telegram_message(text: str, settings: dict) -> None:
-    bot_id = settings.get("telegram_bot_id") or ""
-    chat_id = settings.get("telegram_chat_id") or ""
+    bot_id = (settings.get("telegram_bot_id") or "").strip()
+    chat_id = (settings.get("telegram_chat_id") or "").strip()
     if not bot_id or not chat_id:
         return
 
@@ -522,25 +714,20 @@ def send_telegram_message(text: str, settings: dict) -> None:
 
 
 def send_telegram_ad(ad: dict, settings: dict) -> None:
-    bot_id = settings.get("telegram_bot_id") or ""
-    chat_id = settings.get("telegram_chat_id") or ""
+    bot_id = (settings.get("telegram_bot_id") or "").strip()
+    chat_id = (settings.get("telegram_chat_id") or "").strip()
     if not bot_id or not chat_id:
         return
 
-    title = ad.get("title", "").strip()
-    price = ad.get("price", "").strip()
-    url = ad.get("url", "").strip()
-    image_url = ad.get("image_url", "").strip()
+    title = (ad.get("title") or "").strip()
+    price = (ad.get("price") or "").strip()
+    url = (ad.get("url") or "").strip()
+    image_url = (ad.get("image_url") or "").strip()
     posted_at = (ad.get("posted_at") or "").strip()
 
-    if posted_at:
-        caption = f"Titel = {title}\nPrijs = {price}\nDatum = {posted_at}"
-    else:
-        caption = f"Titel = {title}\nPrijs = {price}"
+    caption = f"Titel = {title}\nPrijs = {price}" + (f"\nDatum = {posted_at}" if posted_at else "")
 
-    reply_markup = {
-        "inline_keyboard": [[{"text": "Bekijk advertentie", "url": url}]]
-    }
+    reply_markup = {"inline_keyboard": [[{"text": "Bekijk advertentie", "url": url}]]}
 
     try:
         if image_url:
@@ -567,8 +754,20 @@ def send_telegram_ad(ad: dict, settings: dict) -> None:
 
 
 # ------------------------------------------------------------------------------
-# Kern zoeken
+# Search logic
 # ------------------------------------------------------------------------------
+
+def _parse_price_to_cents_like_old(p: str) -> Optional[int]:
+    if not p:
+        return None
+    digits = "".join(ch for ch in p if ch.isdigit())
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except ValueError:
+        return None
+
 
 def run_search_for_keyword(keyword: dict, settings: dict, manual: bool = False) -> tuple[int, int]:
     term = keyword["term"]
@@ -578,22 +777,18 @@ def run_search_for_keyword(keyword: dict, settings: dict, manual: bool = False) 
 
     limit_per_run = max(1, min(20, limit_per_run))
 
-    raw_ads = fetch_results(term, settings, limit_per_run)
+    raw_ads = fetch_market_results(term, settings, limit_per_run)
 
-    def parse_price_to_int(p: str) -> int | None:
-        if not p:
-            return None
-        digits = "".join(ch for ch in p if ch.isdigit())
-        if not digits:
-            return None
-        try:
-            return int(digits)
-        except ValueError:
-            return None
+    # Blocklist filter
+    blocked = get_blocklist(settings)
 
     filtered_ads: list[dict] = []
     for ad in raw_ads:
-        p_int = parse_price_to_int(ad.get("price", ""))
+        seller_l = (ad.get("seller") or "").strip().lower()
+        if blocked and seller_l and seller_l in blocked:
+            continue
+
+        p_int = _parse_price_to_cents_like_old(ad.get("price", ""))
         if min_price not in (None, ""):
             try:
                 if p_int is None or p_int < int(min_price) * 100:
@@ -608,10 +803,12 @@ def run_search_for_keyword(keyword: dict, settings: dict, manual: bool = False) 
                 pass
         filtered_ads.append(ad)
 
+    # IMPORTANT: seller fallback via HTML (so “Handmatig” gets seller immediately)
+    filtered_ads = enrich_ads_with_seller(filtered_ads)
+
     new_ads = store_new_results(keyword_id=keyword["id"], ads=filtered_ads)
 
     manual_telegram_on = (settings.get("manual_telegram", "nee").lower() == "ja")
-
     if not manual:
         for ad in new_ads:
             send_telegram_ad(ad, settings)
@@ -654,7 +851,6 @@ def scheduler_loop():
 
                 interval_minutes = int(kw.get("interval_minutes") or settings["default_interval_minutes"])
                 interval = timedelta(minutes=interval_minutes)
-
                 eff_interval = timedelta(hours=1) if (in_sleep and interval < timedelta(hours=1)) else interval
 
                 last_run_at_str = kw.get("last_run_at") or "Nooit"
@@ -697,24 +893,15 @@ def index():
     settings = load_settings()
     keywords = load_keywords()
 
-    postcode = (settings.get("postcode") or "").strip()
-    radius_km = (settings.get("radius_km") or "alle").strip()
-
     for kw in keywords:
-        kw["mp_url"] = build_search_url(
-            kw["term"],
-            settings=settings,
-            postcode=postcode if postcode else None,
-            radius_km=radius_km,
-        )
+        kw["mp_url"] = build_search_url(kw["term"], settings)
 
     return render_template(
         "index.html",
         keywords=keywords,
         default_interval=settings["default_interval_minutes"],
         default_limit_per_run=settings["default_limit_per_run"],
-        postcode=postcode,
-        marketplace=settings.get("marketplace", "marktplaats"),
+        settings=settings,
     )
 
 
@@ -758,8 +945,6 @@ def edit_keyword(keyword_id: int):
         flash("Zoekwoord niet gevonden.", "error")
         return redirect(url_for("index"))
 
-    autosave = (request.form.get("autosave") or "").strip() == "1"
-
     term = (request.form.get("term") or kw["term"]).strip()
     interval = request.form.get("interval")
     min_price = request.form.get("min_price")
@@ -780,17 +965,13 @@ def edit_keyword(keyword_id: int):
     if limit_per_run is not None and limit_per_run != "":
         try:
             l = int(limit_per_run)
-            kw["limit_per_run"] = max(1, min(20, l))
+            l = max(1, min(20, l))
+            kw["limit_per_run"] = l
         except ValueError:
             pass
 
     save_keywords(keywords)
-
-    # voorkom flash spam bij autosave
-    if not autosave:
-        flash(f"Zoekwoord '{term}' bijgewerkt.", "success")
-
-    return redirect(url_for("index"))
+    return redirect(url_for("index"))  # silent save
 
 
 @app.route("/keyword/<int:keyword_id>/manual", methods=["POST"])
@@ -807,8 +988,7 @@ def manual_search(keyword_id: int):
     save_keywords(keywords)
 
     flash(
-        f"Handmatige zoekactie voor '{kw['term']}' uitgevoerd "
-        f"({total} resultaten, {new_count} nieuw).",
+        f"Handmatige zoekactie voor '{kw['term']}' uitgevoerd ({total} resultaten, {new_count} nieuw).",
         "success",
     )
     return redirect(url_for("index"))
@@ -845,14 +1025,69 @@ def delete_keyword(keyword_id: int):
 
 @app.route("/keyword/<int:keyword_id>/results")
 def results(keyword_id: int):
+    settings = load_settings()
     keywords = load_keywords()
     kw = next((k for k in keywords if int(k.get("id") or 0) == keyword_id), None)
     if not kw:
         flash("Zoekwoord niet gevonden.", "error")
         return redirect(url_for("index"))
 
-    ads = get_results_for_keyword(keyword_id, limit=100)
-    return render_template("results.html", keyword=kw, ads=ads)
+    ads = get_results_for_keyword(keyword_id, limit=200)
+
+    return render_template(
+        "results.html",
+        keyword=kw,
+        ads=ads,
+        settings=settings,
+    )
+
+
+# ------------------------------------------------------------------------------
+# Blocklist routes
+# ------------------------------------------------------------------------------
+
+@app.route("/blocklist/save", methods=["POST"])
+def blocklist_save():
+    settings = load_settings()
+
+    enabled = _norm_yesno(request.form.get("blocklist_enabled", "nee"))
+    raw = request.form.get("blocked_sellers_text", "") or ""
+    lines = [x.strip() for x in raw.splitlines()]
+
+    cleaned = []
+    seen = set()
+    for x in lines:
+        if not x:
+            continue
+        xl = x.lower()
+        if xl in seen:
+            continue
+        seen.add(xl)
+        cleaned.append(x)
+
+    settings["blocklist_enabled"] = enabled
+    settings["blocked_sellers"] = cleaned
+    save_settings(settings)
+
+    flash("Blocklist opgeslagen.", "success")
+    return redirect(url_for("config_view"))
+
+
+@app.route("/blocklist/add", methods=["POST"])
+def blocklist_add():
+    settings = load_settings()
+    seller = request.form.get("seller", "") or ""
+    keyword_id = request.form.get("keyword_id", "")
+
+    settings["blocklist_enabled"] = "ja"
+    settings = add_blocked_seller(settings, seller)
+    save_settings(settings)
+
+    try:
+        kid = int(keyword_id)
+        return redirect(url_for("results", keyword_id=kid))
+    except Exception:
+        return redirect(url_for("config_view"))
 
 
 # ------------------------------------------------------------------------------
@@ -862,17 +1097,17 @@ def results(keyword_id: int):
 @app.route("/config", methods=["GET"])
 def config_view():
     settings = load_settings()
-    return render_template("config.html", settings=settings)
+    blocked = settings.get("blocked_sellers") or []
+    blocked_text = "\n".join(blocked)
+    return render_template("config.html", settings=settings, blocked_text=blocked_text)
 
 
 @app.route("/config/timer", methods=["POST"])
 def config_save_timer():
     settings = load_settings()
 
-    marketplace = (request.form.get("marketplace") or settings.get("marketplace") or "marktplaats").strip().lower()
-    if marketplace not in ("marktplaats", "2dehands"):
-        marketplace = "marktplaats"
-    settings["marketplace"] = marketplace
+    marketplace = (request.form.get("marketplace") or "marktplaats").strip().lower()
+    settings["marketplace"] = "2dehands" if marketplace == "2dehands" else "marktplaats"
 
     default_interval = request.form.get("default_interval_minutes")
     default_limit = request.form.get("default_limit_per_run")
@@ -893,14 +1128,14 @@ def config_save_timer():
     except Exception:
         pass
 
-    settings["sleep_mode"] = "ja" if sleep_mode.lower() == "ja" else "nee"
+    settings["sleep_mode"] = _norm_yesno(sleep_mode)
     settings["sleep_start"] = sleep_start or "23:00"
     settings["sleep_end"] = sleep_end or "07:00"
     settings["postcode"] = postcode
     settings["radius_km"] = radius_km or "alle"
 
     save_settings(settings)
-    flash("Timer-, slaap- en locatie-instellingen opgeslagen.", "success")
+    flash("Instellingen opgeslagen.", "success")
     return redirect(url_for("config_view"))
 
 
@@ -914,7 +1149,7 @@ def config_save_telegram():
 
     settings["telegram_bot_id"] = bot_id
     settings["telegram_chat_id"] = chat_id
-    settings["manual_telegram"] = "ja" if manual_telegram.lower() == "ja" else "nee"
+    settings["manual_telegram"] = _norm_yesno(manual_telegram)
 
     save_settings(settings)
     flash("Telegram-instellingen opgeslagen.", "success")
@@ -924,7 +1159,7 @@ def config_save_telegram():
 @app.route("/config/telegram/test", methods=["POST"])
 def config_test_telegram():
     settings = load_settings()
-    send_telegram_message("✅ Testbericht van Marktplaats Watcher (instellingen ook opgeslagen)", settings)
+    send_telegram_message("✅ Testbericht van MPWatcher", settings)
     flash("Testbericht naar Telegram verstuurd (indien juist geconfigureerd).", "success")
     return redirect(url_for("config_view"))
 
